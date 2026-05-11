@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { margin: 0; background: #000; }
+    canvas { 
+        position: absolute; top: 0; left: 0;
+    }
+    video { 
+        position: absolute; top: 0; left: 0;
+        width: 100vw; height: 100vh; object-fit: cover;
+        transform: scaleX(-1)
+    }
+    #status { position: absolute; top: 10px; left: 10px;
+              color: lime; font-family: monospace; font-size: 14px; z-index: 99; }
+  </style>
+</head>
+<body>
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="canvas"></canvas>
+  <div id="status">Iniciando câmera...</div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+
+  <script>
+    const video  = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx    = canvas.getContext('2d');
+    const status = document.getElementById('status');
+
+    const faceMesh = new FaceMesh({ locateFile: f =>
+      'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/' + f });
+
+    faceMesh.setOptions({
+      maxNumFaces: 1,
+      refineLandmarks: true,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5,
+    });
+
+    faceMesh.onResults(results => {
+        const displayW = window.innerWidth;
+        const displayH = window.innerHeight;
+        const videoAspect = video.videoWidth / video.videoHeight;
+        const displayAspect = displayW / displayH;
+
+        let drawW, drawH, offsetX, offsetY;
+        if (displayAspect > videoAspect) {
+            drawW = displayW;
+            drawH = displayW / videoAspect;
+            offsetX = 0;
+            offsetY = (displayH - drawH) / 2;
+        } else {
+            drawH = displayH;
+            drawW = displayH * videoAspect;
+            offsetX = (displayW - drawW) / 2;
+            offsetY = 0;
+        }
+
+        canvas.width = displayW;
+        canvas.height = displayH;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.save();
+        ctx.scale(-1, 1);
+        ctx.translate(-canvas.width, 0);
+
+        if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+            status.textContent = '✅ Rosto detectado!';
+            for (const landmarks of results.multiFaceLandmarks) {
+            const scaledLandmarks = landmarks.map(p => ({
+                x: (p.x * drawW + offsetX) / displayW,
+                y: (p.y * drawH + offsetY) / displayH,
+                z: p.z,
+            }));
+            drawConnectors(ctx, scaledLandmarks, FACEMESH_TESSELATION,
+                { color: '#00FF0044', lineWidth: 1 });
+            drawConnectors(ctx, scaledLandmarks, FACEMESH_LEFT_EYE,
+                { color: '#00FFFF', lineWidth: 2 });
+            drawConnectors(ctx, scaledLandmarks, FACEMESH_RIGHT_EYE,
+                { color: '#00FFFF', lineWidth: 2 });
+            const nose = scaledLandmarks[1];
+            ctx.beginPath();
+            ctx.arc(nose.x * canvas.width, nose.y * canvas.height, 6, 0, 2*Math.PI);
+            ctx.fillStyle = 'red';
+            ctx.fill();
+            }
+        } else {
+            status.textContent = '👀 Procurando rosto...';
+        }
+        ctx.restore();
+    });
+
+    const constraints = { video: { facingMode: 'user' }, audio: false };
+
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      navigator.mediaDevices.getUserMedia(constraints)
+        .then(stream => {
+          video.srcObject = stream;
+          video.onloadedmetadata = () => {
+            status.textContent = '📷 Câmera OK, carregando IA...';
+            const camera = new Camera(video, {
+              onFrame: async () => { await faceMesh.send({ image: video }); },
+              width: 640, height: 480,
+            });
+            camera.start();
+          };
+        })
+        .catch(e => { status.textContent = 'Erro câmera: ' + e.message; });
+    } else {
+      status.textContent = 'Erro: getUserMedia não disponível';
+    }
+  </script>
+</body>
+</html>
