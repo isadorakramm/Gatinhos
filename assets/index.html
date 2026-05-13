@@ -38,8 +38,6 @@
     const scene = new THREE.Scene();
 
     // Câmera ortográfica: mapeia pixels diretamente, sem distorção de perspectiva.
-    // Isso elimina o problema de calibração do FOV que estava causando o mismatch.
-    // range: -1..+1 em Y, -aspect..+aspect em X
     let aspect = window.innerWidth / window.innerHeight;
     const orthoCam = new THREE.OrthographicCamera(-aspect, aspect, 1, -1, -10, 10);
     orthoCam.position.z = 1;
@@ -50,7 +48,7 @@
     scene.add(dirLight);
 
     // ── Triangulação canônica do Face Mesh (lista completa) ───────────────────
-    // 468 triângulos × 3 índices, extraída do repositório oficial do MediaPipe
+    // 468 triângulos × 3 índices, tirada do repositório oficial do MediaPipe
         const FACE_TRIS = [
       10,338,297,10,297,332,10,332,284,10,284,251,10,251,389,10,389,356,10,356,454,
       10,454,323,10,323,361,10,361,288,10,288,397,10,397,365,10,365,379,10,379,378,
@@ -87,7 +85,7 @@
     faceGeo.setAttribute('position', new THREE.BufferAttribute(facePositions, 3));
     faceGeo.setIndex(FACE_TRIS);
 
-    // DEBUG: verde semi-transparente — mudar para occlusionMat quando alinhado
+    // DEBUG: verde semi-transparente -> mudar para occlusionMat quando estiver alinhado
     const debugMat = new THREE.MeshBasicMaterial({
       color: 0x00ff00, transparent: true, opacity: 0.35,
       side: THREE.FrontSide, depthWrite: true,
@@ -95,7 +93,7 @@
     const occlusionMat = new THREE.MeshBasicMaterial({
       colorWrite: false, depthWrite: true, side: THREE.FrontSide,
     });
-    const faceMesh3D = new THREE.Mesh(faceGeo, occlusionMat); // trocar debugMat → occlusionMat depois
+    const faceMesh3D = new THREE.Mesh(faceGeo, occlusionMat); 
     faceMesh3D.renderOrder = 0;
     scene.add(faceMesh3D);
 
@@ -119,15 +117,13 @@
     );
 
     // ── Conversão de landmark para espaço 3D ──────────────────────────────────
-    // Usa a mesma lógica do código 2D original (drawW/drawH/offsetX/offsetY)
-    // para compensar o object-fit:cover, mas converte para NDC ortográfico.
     function lmToWorld(lm, drawW, drawH, offsetX, offsetY, displayW, displayH) {
-      // 1. Converte para pixel na tela (igual ao código 2D)
+      // 1) Converte para pixeis na tela 
       const px = lm.x * drawW + offsetX;
       const py = lm.y * drawH + offsetY;
 
-      // 2. Normaliza para NDC: 0..displayW → -aspect..+aspect, 0..displayH → 1..-1
-      // O vídeo está espelhado com scaleX(-1), então invertemos X
+      // 2) Normaliza para NDC:
+      // O video ta espelhado com scaleX(-1), entao a gente inverte o X
       const nx = -( px / displayW * 2 * aspect - aspect );
       const ny = -( py / displayH * 2 - 1 );
       const nz = -lm.z * 0.15; // Z suave, só pra oclusão funcionar
@@ -148,7 +144,6 @@
       const displayW = window.innerWidth;
       const displayH = window.innerHeight;
 
-      // Recalcula drawW/drawH/offset igual ao código 2D original
       const videoAspect   = video.videoWidth  / video.videoHeight;
       const displayAspect = displayW / displayH;
       let drawW, drawH, offsetX, offsetY;
@@ -173,7 +168,7 @@
         faceGeo.attributes.position.needsUpdate = true;
         faceGeo.computeBoundingSphere();
 
-        // Posiciona e rotaciona os óculos
+        // Posiciona e rotaciona os oculos
         if (glassesWrapper) {
           const noseBridge = lmToWorld(lms[6],   drawW, drawH, offsetX, offsetY, displayW, displayH);
           const templeL    = lmToWorld(lms[234], drawW, drawH, offsetX, offsetY, displayW, displayH);
@@ -181,12 +176,12 @@
           const chin       = lmToWorld(lms[152], drawW, drawH, offsetX, offsetY, displayW, displayH);
           const top        = lmToWorld(lms[10],  drawW, drawH, offsetX, offsetY, displayW, displayH);
 
-          // Usa landmark 168 (centro exato entre os olhos) como âncora de posição
+          // Usa o centro exato entre os olhos como âncora de posição
           // em X, Y e Z — ele segue o rosto em todas as direções, inclusive
           // quando o rosto está virado e uma têmpora some atrás da cabeça
           const eyeCenter = lmToWorld(lms[168], drawW, drawH, offsetX, offsetY, displayW, displayH);
           glassesWrapper.position.copy(eyeCenter);
-          glassesWrapper.position.z += 0.05; // empurra pra frente da malha
+          glassesWrapper.position.z += 0.05;
 
           const faceWidth  = templeL.distanceTo(templeR);
           const faceHeight = top.distanceTo(chin);
@@ -195,7 +190,7 @@
 
           const dir    = new THREE.Vector3().subVectors(templeR, templeL).normalize();
           const angleZ = Math.atan2(dir.y, dir.x);
-          // Z do MediaPipe é muito pequeno na projeção ortográfica — amplificamos
+          // Z do MediaPipe é muito pequeno na projeção ortográfica, então a gente amplifica
           // só para o cálculo dos ângulos, sem afetar a posição
           const zScale = 8.0;
           const angleY = Math.atan2((templeR.z - templeL.z) * zScale, faceWidth);
