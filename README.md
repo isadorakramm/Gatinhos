@@ -1,97 +1,145 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# 👓 VisionFrame AI — Teste de Face Tracking
 
-# Getting Started
+Protótipo de prova virtual de óculos desenvolvido como parte do projeto **VisionFrame AI** para as **Óticas Corrente**, no programa **Residência em TIC 55**.
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+O app usa **MediaPipe** para detectar 478 pontos do rosto em tempo real e renderiza um modelo 3D de óculos sobre o rosto usando **Three.js**, tudo rodando dentro de uma **WebView React Native**.
 
-## Step 1: Start Metro
+---
 
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
+## ✨ O que ele faz
 
-To start the Metro dev server, run the following command from the root of your React Native project:
+- Detecta o rosto em tempo real pela câmera frontal
+- Posiciona um modelo 3D de óculos (`.glb`) sobre os olhos
+- Rotaciona o modelo acompanhando os movimentos da cabeça (cima, baixo, esquerda, direita, inclinação)
+- Usa uma **malha de oclusão invisível** para que as hastes somam atrás do rosto ao virar — igual filtro do Instagram 😎
 
-```sh
-# Using npm
-npm start
+---
 
-# OR using Yarn
+## 🛠️ Stack
+
+| Tecnologia | Uso |
+|---|---|
+| React Native | App mobile (Android/iOS) |
+| react-native-webview | Embute o HTML com a câmera e AR no app |
+| MediaPipe Face Mesh | Detecção dos 478 landmarks faciais |
+| Three.js r128 | Renderização 3D do modelo de óculos |
+| GLTFLoader | Carregamento do modelo `.glb` |
+
+---
+
+## 📁 Estrutura
+
+```
+├── App.tsx              # Ponto de entrada — renderiza a WebView
+├── assets/
+│   ├── index.html       # Toda a lógica de AR (MediaPipe + Three.js)
+│   └── reading_glasses.glb  # Modelo 3D dos óculos
+```
+
+---
+
+## 🚀 Como rodar
+
+### Pré-requisitos
+
+- Node.js LTS
+- Java JDK 17
+- Android Studio (com Android SDK e AVD configurados)
+- Yarn
+- ADB configurado nas variáveis de ambiente
+
+### Instalação
+
+```bash
+# Clone o repositório
+git clone https://github.com/isadorakramm/Gatinhos.git
+cd Gatinhos
+
+# Instale as dependências
+yarn install
+```
+
+### Rodando o app
+
+Você vai precisar de **três terminais** abertos ao mesmo tempo:
+
+**Terminal 1 — Metro Bundler:**
+```bash
 yarn start
 ```
 
-## Step 2: Build and run your app
+**Terminal 2 — Servidor local para o modelo 3D:**
+```bash
+cd assets
+npx serve . --cors -p 3000
+```
 
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
+> O Three.js precisa de um servidor HTTP para carregar o arquivo `.glb`. Esse servidor precisa ficar rodando durante todo o desenvolvimento.
 
-### Android
-
-```sh
-# Using npm
-npm run android
-
-# OR using Yarn
+**Terminal 3 — Instala no dispositivo:**
+```bash
 yarn android
 ```
 
-### iOS
-
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
-
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
-
-```sh
-bundle install
+Depois de instalado, cria a ponte entre o celular e o computador:
+```bash
+adb reverse tcp:8081 tcp:8081
 ```
 
-Then, and every time you update your native dependencies, run:
+---
 
-```sh
-bundle exec pod install
+## ⚠️ Problemas comuns
+
+**"Erro modelo: ..."** no canto da tela
+
+O servidor de assets não está rodando. Vai no terminal e roda `npx serve . --cors -p 3000` dentro da pasta `assets`.
+
+**"getUserMedia não disponível"**
+
+O `adb reverse` não foi rodado. Roda `adb reverse tcp:8081 tcp:8081` e dá reload no app.
+
+**App instala mas câmera não aparece**
+
+Vai em Configurações > Apps > Gatinhos > Permissões e certifica que a câmera está permitida.
+
+---
+
+## 💡 Como funciona
+
+### Arquitetura
+
+A tela tem três camadas empilhadas:
+
+```
+┌─────────────────────────────┐
+│  <canvas> Three.js          │  ← óculos 3D + malha de oclusão
+├─────────────────────────────┤
+│  <video> câmera ao vivo     │  ← fundo (espelhado com scaleX -1)
+└─────────────────────────────┘
 ```
 
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
+### A cada frame
 
-```sh
-# Using npm
-npm run ios
+1. MediaPipe processa a imagem e retorna 478 landmarks (x, y, z normalizados)
+2. Os landmarks são convertidos para coordenadas 3D do Three.js
+3. A malha de oclusão é atualizada com as novas posições
+4. O óculos é reposicionado e rerotacionado
+5. Three.js renderiza a cena
 
-# OR using Yarn
-yarn ios
-```
+### Occlusion mesh
 
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
+A parte mais legal! Uma malha 3D invisível é construída sobre o rosto usando os 478 landmarks. O material tem `colorWrite: false` (não aparece na tela) mas `depthWrite: true` (escreve no depth buffer). O Three.js descarta automaticamente os pixels dos óculos que ficam atrás dessa malha, fazendo as hastes sumirem quando o rosto passa na frente. É a mesma técnica usada pelo Instagram e Snapchat nos filtros AR.
 
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
+---
 
-## Step 3: Modify your app
+## 📌 Observações
 
-Now that you have successfully run the app, let's make changes!
+- Este repositório é um **protótipo/MVP** desenvolvido para exploração técnica, não um produto final
+- A abordagem WebView foi escolhida para simplificar a integração do MediaPipe JS, que foi projetado para rodar no browser
+- Para um produto final, a migração para **React Native Vision Camera** com worklets nativos melhoraria significativamente a performance
 
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
+---
 
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
+## Autora
 
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
-
-## Congratulations! :tada:
-
-You've successfully run and modified your React Native App. :partying_face:
-
-### Now what?
-
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
-
-# Troubleshooting
-
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
-
-# Learn More
-
-To learn more about React Native, take a look at the following resources:
-
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+**Isadora Kramm** — Residência em TIC 55 
