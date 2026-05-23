@@ -101,7 +101,7 @@
     let glassesWrapper = null;
     const loader = new THREE.GLTFLoader();
     loader.load(
-      'http://localhost:3000/reading_glasses.glb',
+      'http://localhost:3000/red_sunglasses.glb',
       (gltf) => {
         const model = gltf.scene;
         model.rotation.set(0, 0, 0);
@@ -110,6 +110,14 @@
         wrapper.add(model);
         scene.add(wrapper);
         glassesWrapper = wrapper;
+
+        // Guarda o Z máximo do bounding box (plano frontal das lentes em espaço local).
+        // Necessário para calcular o offset de Z correto no loop de posicionamento:
+        // o wrapper deve ser puxado para trás de (maxZ × scale) para que a frente
+        // dos óculos, e não o centro geométrico, se alinhe com a ponte do nariz.
+        const bbox = new THREE.Box3().setFromObject(model);
+        glassesWrapper.userData.glassesMaxZ = bbox.max.z;
+
         status.textContent = '✅ Modelo carregado! Aponte o rosto...';
       },
       (p) => { if (p.total > 0) status.textContent = 'Carregando: ' + Math.round(p.loaded/p.total*100) + '%'; },
@@ -180,13 +188,21 @@
           // em X, Y e Z — ele segue o rosto em todas as direções, inclusive
           // quando o rosto está virado e uma têmpora some atrás da cabeça
           const eyeCenter = lmToWorld(lms[168], drawW, drawH, offsetX, offsetY, displayW, displayH);
-          glassesWrapper.position.copy(eyeCenter);
-          glassesWrapper.position.z += 0.05;
 
           const faceWidth  = templeL.distanceTo(templeR);
           const faceHeight = top.distanceTo(chin);
           // Escala recalibrada para câmera ortográfica
-          glassesWrapper.scale.setScalar(faceWidth * 0.4);
+          const scale = faceWidth * 0.4;
+          glassesWrapper.scale.setScalar(scale);
+
+          glassesWrapper.position.copy(eyeCenter);
+          // Na câmera ortográfica Z não afeta posição 2D, mas determina depth testing.
+          // O wrapper.position aponta para o CENTRO geométrico do modelo. Precisamos
+          // que o PLANO FRONTAL das lentes (local Z = glassesMaxZ) fique na ponte do
+          // nariz, então puxamos o wrapper para trás de (glassesMaxZ × scale).
+          // O epsilon +0.02 garante que a armação frontal passe no depth test vs malha.
+          const glassesMaxZ = glassesWrapper.userData.glassesMaxZ || 0.5;
+          glassesWrapper.position.z -= glassesMaxZ * scale - 0.02;
 
           const dir    = new THREE.Vector3().subVectors(templeR, templeL).normalize();
           const angleZ = Math.atan2(dir.y, dir.x);
