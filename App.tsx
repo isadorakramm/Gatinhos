@@ -1,16 +1,18 @@
 import React from 'react';
-import { StyleSheet, View, Text } from 'react-native';
+import { NavigationContainer } from '@react-navigation/native';
+import { createStackNavigator } from '@react-navigation/stack';
+import { View, StyleSheet,TouchableOpacity, Text } from 'react-native';
 import { WebView } from 'react-native-webview';
+import LeituraReceitaScreen from './src/screens/LeituraReceitaScreen';
 
-const SERVER_URL = 'http://localhost:8081/assets/index.html';
+const Stack = createStackNavigator();
 
-export default function App() {
+function ARScreen({ navigation }: any) {
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>VisionFrame – Teste Face Tracking</Text>
       <WebView
         style={styles.webview}
-        source={{ uri: SERVER_URL }}
+        source={{ uri: 'http://localhost:8082/assets/index.html' }}
         mediaPlaybackRequiresUserAction={false}
         allowsInlineMediaPlayback={true}
         javaScriptEnabled={true}
@@ -20,15 +22,53 @@ export default function App() {
         allowsFullscreenVideo={true}
         onPermissionRequest={(request: any) => request.grant(request.resources)}
       />
+      <TouchableOpacity
+        style={styles.botaoReceita}
+        onPress={() => navigation.navigate('LeituraReceita')}
+      >
+        <Text style={styles.botaoReceitaTexto}>📋 Ler Receita</Text>
+      </TouchableOpacity>
     </View>
+  );
+}
+
+export default function App() {
+  return (
+    <NavigationContainer>
+      <Stack.Navigator initialRouteName="AR">
+        <Stack.Screen
+          name="AR"
+          component={ARScreen}
+          options={{ title: 'VisionFrame – Prova Virtual' }}
+        />
+        <Stack.Screen
+          name="LeituraReceita"
+          component={LeituraReceitaScreen}
+          options={{ title: 'Leitura de Receita' }}
+        />
+      </Stack.Navigator>
+    </NavigationContainer>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
-  title: {
-    color: '#fff', textAlign: 'center',
-    padding: 10, fontSize: 14, fontWeight: 'bold',
-  },
-  webview: { flex: 1 },
+  webview:   { flex: 1 },
+
+  botaoReceita: {
+  position: 'absolute',
+  top: 16,
+  right: 16,
+  backgroundColor: 'rgba(0,0,0,0.6)',
+  paddingHorizontal: 14,
+  paddingVertical: 8,
+  borderRadius: 20,
+  borderWidth: 1,
+  borderColor: 'rgba(255,255,255,0.4)',
+},
+botaoReceitaTexto: {
+  color: '#fff',
+  fontSize: 13,
+  fontWeight: 'bold',
+},
 });

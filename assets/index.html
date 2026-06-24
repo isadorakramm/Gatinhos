@@ -12,12 +12,34 @@
     #canvas-three { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; }
     #status { position: absolute; top: 10px; left: 10px;
               color: lime; font-family: monospace; font-size: 14px; z-index: 99; }
+    #glasses-menu {
+      position: absolute; bottom: 24px; left: 0; right: 0;
+      display: flex; justify-content: center; gap: 10px;
+      z-index: 100; padding: 0 12px; flex-wrap: wrap;
+    }
+    .glasses-btn {
+      background: rgba(0,0,0,0.55); color: #fff;
+      border: 2px solid rgba(255,255,255,0.3); border-radius: 22px;
+      padding: 9px 18px; font-size: 14px; font-family: sans-serif;
+      cursor: pointer; backdrop-filter: blur(6px);
+      transition: border-color 0.2s, background 0.2s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .glasses-btn.active {
+      border-color: #fff; background: rgba(255,255,255,0.22);
+      font-weight: bold;
+    }
   </style>
 </head>
 <body>
   <video id="video" autoplay playsinline muted></video>
   <canvas id="canvas-three"></canvas>
   <div id="status">Iniciando câmera...</div>
+  <div id="glasses-menu">
+    <button class="glasses-btn active" data-model="red_sunglasses.glb">Óculos Vermelho</button>
+    <button class="glasses-btn" data-model="reading_glasses.glb">Leitura</button>
+    <button class="glasses-btn" data-model="wayfarer_glasses.glb">Wayfarer</button>
+  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
@@ -93,42 +115,77 @@
     const occlusionMat = new THREE.MeshBasicMaterial({
       colorWrite: false, depthWrite: true, side: THREE.FrontSide,
     });
-    const faceMesh3D = new THREE.Mesh(faceGeo, occlusionMat); 
+    const faceMesh3D = new THREE.Mesh(faceGeo, occlusionMat);
     faceMesh3D.renderOrder = 0;
+    faceMesh3D.frustumCulled = false;
     scene.add(faceMesh3D);
 
     // ── Modelo dos óculos ─────────────────────────────────────────────────────
     let glassesWrapper = null;
     const loader = new THREE.GLTFLoader();
-    loader.load(
-      'http://localhost:3000/red_sunglasses.glb',
-      (gltf) => {
-        const model = gltf.scene;
-        model.rotation.set(0, 0, 0);
-        model.traverse(o => { if (o.isMesh) o.renderOrder = 1; });
-        const wrapper = new THREE.Group();
-        wrapper.add(model);
-        scene.add(wrapper);
-        glassesWrapper = wrapper;
-        status.textContent = '✅ Modelo carregado! Aponte o rosto...';
-      },
-      (p) => { if (p.total > 0) status.textContent = 'Carregando: ' + Math.round(p.loaded/p.total*100) + '%'; },
-      (e) => { status.textContent = 'Erro: ' + e.message; }
-    );
+
+    function disposeObject(obj) {
+      obj.traverse(child => {
+        if (!child.isMesh) return;
+        child.geometry.dispose();
+        const mats = Array.isArray(child.material) ? child.material : [child.material];
+        mats.forEach(m => {
+          Object.values(m).forEach(v => { if (v && v.isTexture) v.dispose(); });
+          m.dispose();
+        });
+      });
+    }
+
+    function loadGlasses(filename) {
+      if (glassesWrapper) {
+        disposeObject(glassesWrapper);
+        scene.remove(glassesWrapper);
+        glassesWrapper = null;
+        renderer.renderLists.dispose();
+      }
+      status.textContent = 'Carregando modelo...';
+      loader.load(
+        'http://localhost:3000/' + filename,
+        (gltf) => {
+          const model = gltf.scene;
+          model.rotation.set(0, 0, 0);
+          model.traverse(o => { if (o.isMesh) o.renderOrder = 1; });
+          const wrapper = new THREE.Group();
+          wrapper.add(model);
+          scene.add(wrapper);
+          glassesWrapper = wrapper;
+          status.textContent = '✅ Modelo carregado! Aponte o rosto...';
+        },
+        (p) => { if (p.total > 0) status.textContent = 'Carregando: ' + Math.round(p.loaded/p.total*100) + '%'; },
+        (e) => { status.textContent = 'Erro: ' + e.message; }
+      );
+    }
+
+    document.querySelectorAll('.glasses-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.glasses-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        loadGlasses(btn.dataset.model);
+      });
+    });
+
+    loadGlasses('red_sunglasses.glb');
 
     // ── Conversão de landmark para espaço 3D ──────────────────────────────────
-    function lmToWorld(lm, drawW, drawH, offsetX, offsetY, displayW, displayH) {
-      // 1) Converte para pixeis na tela 
+    // Vetores pré-alocados para evitar GC no hot path
+    const _vNose = new THREE.Vector3(), _vTempleL = new THREE.Vector3();
+    const _vTempleR = new THREE.Vector3(), _vChin = new THREE.Vector3();
+    const _vTop = new THREE.Vector3(), _vEye = new THREE.Vector3();
+    const _vDir = new THREE.Vector3();
+
+    function lmToWorld(lm, drawW, drawH, offsetX, offsetY, displayW, displayH, target) {
       const px = lm.x * drawW + offsetX;
       const py = lm.y * drawH + offsetY;
-
-      // 2) Normaliza para NDC:
-      // O video ta espelhado com scaleX(-1), entao a gente inverte o X
-      const nx = -( px / displayW * 2 * aspect - aspect );
-      const ny = -( py / displayH * 2 - 1 );
-      const nz = -lm.z * 0.15; // Z suave, só pra oclusão funcionar
-
-      return new THREE.Vector3(nx, ny, nz);
+      return target.set(
+        -( px / displayW * 2 * aspect - aspect ),
+        -( py / displayH * 2 - 1 ),
+        -lm.z * 0.15
+      );
     }
 
     // ── MediaPipe Face Mesh ───────────────────────────────────────────────────
@@ -136,7 +193,7 @@
       locateFile: f => 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/' + f
     });
     faceMesh.setOptions({
-      maxNumFaces: 1, refineLandmarks: true,
+      maxNumFaces: 1, refineLandmarks: false,
       minDetectionConfidence: 0.5, minTrackingConfidence: 0.5,
     });
 
@@ -158,38 +215,40 @@
       if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
         const lms = results.multiFaceLandmarks[0];
 
-        // Atualiza malha de oclusão
-        for (let i = 0; i < Math.min(lms.length, 478); i++) {
-          const v = lmToWorld(lms[i], drawW, drawH, offsetX, offsetY, displayW, displayH);
-          facePositions[i*3]   = v.x;
-          facePositions[i*3+1] = v.y;
-          facePositions[i*3+2] = v.z;
+        // Atualiza malha de oclusão — math inline evita alocar Vector3 por landmark
+        for (let i = 0; i < lms.length; i++) {
+          const lm = lms[i];
+          const px = lm.x * drawW + offsetX;
+          const py = lm.y * drawH + offsetY;
+          facePositions[i*3]   = -(px / displayW * 2 * aspect - aspect);
+          facePositions[i*3+1] = -(py / displayH * 2 - 1);
+          facePositions[i*3+2] = -lm.z * 0.15;
         }
         faceGeo.attributes.position.needsUpdate = true;
-        faceGeo.computeBoundingSphere();
 
         // Posiciona e rotaciona os oculos
         if (glassesWrapper) {
-          const noseBridge = lmToWorld(lms[6],   drawW, drawH, offsetX, offsetY, displayW, displayH);
-          const templeL    = lmToWorld(lms[234], drawW, drawH, offsetX, offsetY, displayW, displayH);
-          const templeR    = lmToWorld(lms[454], drawW, drawH, offsetX, offsetY, displayW, displayH);
-          const chin       = lmToWorld(lms[152], drawW, drawH, offsetX, offsetY, displayW, displayH);
-          const top        = lmToWorld(lms[10],  drawW, drawH, offsetX, offsetY, displayW, displayH);
+          lmToWorld(lms[6],   drawW, drawH, offsetX, offsetY, displayW, displayH, _vNose);
+          lmToWorld(lms[234], drawW, drawH, offsetX, offsetY, displayW, displayH, _vTempleL);
+          lmToWorld(lms[454], drawW, drawH, offsetX, offsetY, displayW, displayH, _vTempleR);
+          lmToWorld(lms[152], drawW, drawH, offsetX, offsetY, displayW, displayH, _vChin);
+          lmToWorld(lms[10],  drawW, drawH, offsetX, offsetY, displayW, displayH, _vTop);
+          const noseBridge = _vNose, templeL = _vTempleL, templeR = _vTempleR;
+          const chin = _vChin, top = _vTop;
 
           // Usa o centro exato entre os olhos como âncora de posição
           // em X, Y e Z — ele segue o rosto em todas as direções, inclusive
           // quando o rosto está virado e uma têmpora some atrás da cabeça
-          const eyeCenter = lmToWorld(lms[168], drawW, drawH, offsetX, offsetY, displayW, displayH);
-          glassesWrapper.position.copy(eyeCenter);
+          lmToWorld(lms[168], drawW, drawH, offsetX, offsetY, displayW, displayH, _vEye);
+          glassesWrapper.position.copy(_vEye);
           glassesWrapper.position.z += 0.05;
 
           const faceWidth  = templeL.distanceTo(templeR);
           const faceHeight = top.distanceTo(chin);
-          // Escala recalibrada para câmera ortográfica
           glassesWrapper.scale.setScalar(faceWidth * 0.4);
 
-          const dir    = new THREE.Vector3().subVectors(templeR, templeL).normalize();
-          const angleZ = Math.atan2(dir.y, dir.x);
+          _vDir.subVectors(templeR, templeL).normalize();
+          const angleZ = Math.atan2(_vDir.y, _vDir.x);
           // Z do MediaPipe é muito pequeno na projeção ortográfica, então a gente amplifica
           // só para o cálculo dos ângulos, sem afetar a posição
           const zScale = 8.0;
